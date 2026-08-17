@@ -1,0 +1,423 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <DNSServer.h>
+#include <globals.h>
+#include <timeData.h>
+#include "SPIFFS.h"
+
+String getIndexHTML();
+String templateProcessor(const String& var);
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
+
+void setupServer(){
+    initWebSocket();
+
+    server.serveStatic("/",SPIFFS,"/");
+    server.onNotFound([](AsyncWebServerRequest *request){
+        if (request->url() == "/"){
+            request->send(SPIFFS,"/wortuhr.html","text/html");
+        }else{
+            request->send(404);
+        } 
+    });
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(SPIFFS,"/wortuhr.html","text/html");
+    });
+
+    server.on("/api/config", HTTP_GET, [] (AsyncWebServerRequest *request) {
+        String config = "{";
+        config += "\"time\":"+ String(myTimeData.hour*60+ myTimeData.minute*60+myTimeData.second) + ",";
+        config += "\"baseColor\":{\"r\":" + String(baseColorDay.r) + ",\"g\":" + String(baseColorDay.g) + ",\"b\":" + String(baseColorDay.b) + ",\"mode\":\"" + designDay + "\",\"brightness\":" + String(brightnessDay) + "},";
+        if(NightMode){
+            config += "\"nightMode\":{\"enabled\":true,";
+        }else{
+            config += "\"nightMode\":{\"enabled\":false,";
+        }
+        config += "\"startH\":" + String(nightModeBeginHour) + ",\"startM\":" + String(nightModeBeginMinute) + ",\"endH\":" + String(nightModeEndHour) + ",\"endM\":" + String(nightModeEndMinute) + ",";
+        config += "\"baseColor\":{\"r\":" + String(baseColorNight.r) + ",\"g\":" + String(baseColorNight.g) + ",\"b\":" + String(baseColorNight.b) + ",\"mode\":\"" + designNight + "\",\"brightness\":" + String(brightnessNight) + "}},";        
+        config += "\"WiFi\":\"" + ssid + "\",\"password\":\"" + password + "\",\"modes\":[" + designOptions + "],\"wiFiSSIDs\":[" + KnownSSIDsList + "]}";
+        request->send_P(200, "application/json", config.c_str()); 
+    });
+
+    server.on("/api/dayColor",HTTP_GET, [] (AsyncWebServerRequest * request){
+        String inputMessage;
+        String newDesign;
+        CRGB newColor;
+        uint8_t newBrightness;
+
+        if (request->hasParam("mode")) {
+            inputMessage = request->getParam("mode")->value();
+            if(designOptions.indexOf(inputMessage) == -1){
+                request->send_P(400, "text/html","mode not available");
+            }
+            newDesign = inputMessage;
+            Serial.println(inputMessage);
+        }
+        if (request->hasParam("r")) {
+            inputMessage = request->getParam("r")->value();
+            Serial.print("R: ");
+            Serial.println(inputMessage);
+            newColor.r = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("g")) {
+            inputMessage = request->getParam("g")->value();
+            Serial.print("G: ");
+            Serial.println(inputMessage);
+            newColor.g = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("b")) {
+            inputMessage = request->getParam("b")->value();
+            Serial.print("B: ");
+            Serial.println(inputMessage);
+            newColor.b = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("brightness")) {
+            inputMessage = request->getParam("brightness")->value();
+            Serial.print("brightness: ");
+            Serial.println(inputMessage);
+            newBrightness = atoi(inputMessage.c_str());
+        }
+
+        preferences.begin("wortuhr",false);
+        preferences.putString("design",newDesign);
+        preferences.putInt("baseColorR",newColor.r);
+        preferences.putInt("baseColorG",newColor.g);
+        preferences.putInt("baseColorB",newColor.b);
+        preferences.putInt("brightness",newBrightness);
+        preferences.end();
+        designDay = newDesign;
+        baseColorDay = newColor;
+        brightnessDay = newBrightness;
+        if(!NightMode){
+            design = newDesign;
+            baseColor = newColor;
+            brightness = newBrightness;
+            FastLED.setBrightness(brightness);
+        }
+        myTimeData.updateColor();
+
+        request->send_P(200, "text/html","ok");
+    });
+
+    server.on("/api/wifi", HTTP_GET, [] (AsyncWebServerRequest *request) {
+        String inputMessage;
+        String inputParam;
+        String newSsid;
+        String newPassword;
+    
+        if (request->hasParam("ssid")) {
+            inputMessage = request->getParam("ssid")->value();
+            inputParam = "ssid";
+            newSsid = inputMessage;
+            Serial.println(inputMessage);
+        }else{
+            request->send_P(400, "text/html","No SSID given");
+        }
+
+        if (request->hasParam("password")) {
+            inputMessage = request->getParam("password")->value();
+            inputParam = "password";
+            newPassword = inputMessage;
+            Serial.println(inputMessage);
+        }else{
+            request->send_P(400, "text/html","No Password given");
+        }
+
+        ssid = newSsid;
+        password = newPassword;
+        preferences.begin("wortuhr",false);
+        preferences.putString("ssid",newSsid);
+        preferences.putString("password",newPassword);
+        preferences.end();
+
+        request->send_P(200, "text/html","ok");
+        delay(500);
+        ESP.restart();
+    });
+
+    server.on("/color", HTTP_GET, [] (AsyncWebServerRequest *request) {
+        String inputMessage;
+        String newDesign;
+        CRGB newColor;
+        uint8_t newBrightness;
+    
+        if (request->hasParam("design")) {
+            inputMessage = request->getParam("design")->value();
+            newDesign = inputMessage;
+            Serial.println(inputMessage);
+        }
+
+        if (request->hasParam("colorR")) {
+            inputMessage = request->getParam("colorR")->value();
+            Serial.print("R: ");
+            Serial.println(inputMessage);
+            newColor.r = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("colorG")) {
+            inputMessage = request->getParam("colorG")->value();
+            Serial.print("G: ");
+            Serial.println(inputMessage);
+            newColor.g = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("colorB")) {
+            inputMessage = request->getParam("colorB")->value();
+            Serial.print("B: ");
+            Serial.println(inputMessage);
+            newColor.b = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("brightness")) {
+            inputMessage = request->getParam("brightness")->value();
+            Serial.print("brightness: ");
+            Serial.println(inputMessage);
+            newBrightness = atoi(inputMessage.c_str());
+        }
+        
+        preferences.begin("wortuhr",false);
+        preferences.putString("design",newDesign);
+        preferences.putInt("baseColorR",newColor.r);
+        preferences.putInt("baseColorG",newColor.g);
+        preferences.putInt("baseColorB",newColor.b);
+        preferences.putInt("brightness",newBrightness);
+        preferences.end();
+        designDay = newDesign;
+        baseColorDay = newColor;
+        brightnessDay = newBrightness;
+        if(!NightMode){
+            design = newDesign;
+            baseColor = newColor;
+            brightness = newBrightness;
+            FastLED.setBrightness(brightness);
+        }
+        myTimeData.updateColor();
+        request->redirect("/");
+    });
+
+    // night
+    server.on("/colorNight", HTTP_GET, [] (AsyncWebServerRequest *request) {
+        String inputMessage;
+        String newDesign;
+        CRGB newColor;
+        uint8_t newBrightness;
+        bool active = false;
+        uint8_t newBeginHour;
+        uint8_t newBeginMinute;
+        uint8_t newEndHour;
+        uint8_t newEndMinute;
+
+        if (request->hasParam("nightModeActiveInt")) {
+            inputMessage = request->getParam("nightModeActiveInt")->value();
+            Serial.print("active: ");
+            Serial.println(inputMessage);
+            int activeInt = atoi(inputMessage.c_str());
+            if(activeInt == 1){
+                active = true;
+            }else{
+                active = false;
+            }
+        }
+        if (request->hasParam("nightModeBeginHour")) {
+            inputMessage = request->getParam("nightModeBeginHour")->value();
+            Serial.print("BeginH: ");
+            Serial.println(inputMessage);
+            newBeginHour = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("nightModeBeginMinute")) {
+            inputMessage = request->getParam("nightModeBeginMinute")->value();
+            Serial.print("BeginM: ");
+            Serial.println(inputMessage);
+            newBeginMinute = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("nightModeEndHour")) {
+            inputMessage = request->getParam("nightModeEndHour")->value();
+            Serial.print("EndH: ");
+            Serial.println(inputMessage);
+            newEndHour = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("nightModeEndMinute")) {
+            inputMessage = request->getParam("nightModeEndMinute")->value();
+            Serial.print("EndM: ");
+            Serial.println(inputMessage);
+            newEndMinute = atoi(inputMessage.c_str());
+        }
+
+        if (request->hasParam("designNight")) {
+            inputMessage = request->getParam("designNight")->value();
+            newDesign = inputMessage;
+            Serial.println(inputMessage);
+        }
+
+        if (request->hasParam("colorNightR")) {
+            inputMessage = request->getParam("colorNightR")->value();
+            Serial.print("RNight: ");
+            Serial.println(inputMessage);
+            newColor.r = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("colorNightG")) {
+            inputMessage = request->getParam("colorNightG")->value();
+            Serial.print("GNight: ");
+            Serial.println(inputMessage);
+            newColor.g = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("colorNightB")) {
+            inputMessage = request->getParam("colorNightB")->value();
+            Serial.print("BNight: ");
+            Serial.println(inputMessage);
+            newColor.b = atoi(inputMessage.c_str());
+        }
+        if (request->hasParam("brightnessNight")) {
+            inputMessage = request->getParam("brightnessNight")->value();
+            Serial.print("brightnessNight: ");
+            Serial.println(inputMessage);
+            newBrightness = atoi(inputMessage.c_str());
+        }
+        
+        preferences.begin("wortuhr",false);
+        preferences.putInt("nightModeBeginH",newBeginHour);
+        nightModeBeginHour = newBeginHour;
+        preferences.putInt("nightModeBeginM",newBeginMinute);
+        nightModeBeginMinute = newBeginMinute;
+        preferences.putInt("nightModeEndH",newEndHour);
+        nightModeEndHour = newEndHour;
+        preferences.putInt("nightModeEndM",newEndMinute);
+        nightModeEndMinute = newEndMinute;
+
+        preferences.putBool("nightModeActive",active);
+        preferences.putString("designNight",newDesign);
+        preferences.putInt("baseColorNightR",newColor.r);
+        preferences.putInt("baseColorNightG",newColor.g);
+        preferences.putInt("baseColorNightB",newColor.b);
+        preferences.putInt("brightnessNight",newBrightness);
+        preferences.end();
+        nightModeActive = active;
+        designNight = newDesign;
+        baseColorNight = newColor;
+        brightnessNight = newBrightness;
+        if(NightMode){
+            design = newDesign;
+            baseColor = newColor;
+            brightness = newBrightness;
+            FastLED.setBrightness(brightness);
+        }
+        myTimeData.checkNightMode();
+        myTimeData.updateColor();
+        request->redirect("/");
+    });
+    
+    server.on("/time",[] (AsyncWebServerRequest *request){
+        int timeUnix;
+        if (request->hasParam("timeUnix")) {
+            timeUnix = atoi(request->getParam("timeUnix")->value().c_str());
+            Serial.println(timeUnix);
+            DateTime dt = timeUnix;
+            if (RTCAvailable){
+                rtc.adjust(dt);
+            }
+            myTimeData.syncTime(); // force clock to syschronise from rtc if in AP mode
+        }
+        request->redirect("/");
+    });
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+    String s = String((char *)data, len);
+    Serial.println(s);
+    if(s.startsWith("day:")){
+        s = s.substring(4);
+        int values[4];
+        int lastIndex = 0;
+        int index = 0;
+        for (int i = 0; i < 4; i++) {
+        index = s.indexOf(',', lastIndex);
+        if (index == -1) index = s.length();
+        values[i] = s.substring(lastIndex, index).toInt();
+        lastIndex = index + 1;
+        }
+        Serial.print(values[0]);
+        Serial.print(",");
+        Serial.print(values[1]);
+        Serial.print(",");
+        Serial.print(values[2]);
+        Serial.print(",");
+        Serial.println(values[3]);
+        baseColor = CRGB(values[0],values[1],values[2]);
+        brightness = values[3];
+        FastLED.setBrightness(brightness);
+        myTimeData.updateColor();
+    }
+  }
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+
+String templateProcessor(const String& var){
+    if(var == "ssidValue"){return ssid;}
+    if (var == "knownSSIDs"){
+        String ret = "<option></option>";
+        for(int i=0;i<10;i++){
+            if (KnownSSIDs[i] != ""){
+                ret += "<option>" + KnownSSIDs[i] + "</option>";
+            }
+        }
+        return ret;
+    }
+    if(var == "passwordValue"){return password;}
+    // day
+    if(var == "colorRValue"){return String(baseColorDay.r);}
+    if(var == "colorGValue"){return String(baseColorDay.g);}
+    if(var == "colorBValue"){return String(baseColorDay.b);}
+    if(var == "designValue"){return designDay;}
+    if(var == "brightnessValue"){return String(brightnessDay);}
+    // night
+    if(var == "nightModeActive"){
+        if(nightModeActive){
+            return "true";
+        }else{
+            return "false";
+        }
+    }
+    if(var=="nightModeActiveInt"){
+        if(nightModeActive){
+            return "1";
+        }else{
+            return "0";
+        }
+    }
+    if(var == "nightModeBeginHourValue"){return String(nightModeBeginHour);}
+    if(var == "nightModeBeginMinuteValue"){return String(nightModeBeginMinute);}
+    if(var == "nightModeEndHourValue"){return String(nightModeEndHour);}
+    if(var == "nightModeEndMinuteValue"){return String(nightModeEndMinute);}
+    if(var == "colorNightRValue"){return String(baseColorNight.r);}
+    if(var == "colorNightGValue"){return String(baseColorNight.g);}
+    if(var == "colorNightBValue"){return String(baseColorNight.b);}
+    if(var == "designNightValue"){return designNight;}
+    if(var == "brightnessNightValue"){return String(brightnessNight);}
+    Serial.println(var + " not found");
+    return "";
+}
