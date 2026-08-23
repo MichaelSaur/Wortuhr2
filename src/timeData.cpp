@@ -64,6 +64,14 @@ void TimeData::checkNightMode(){
     }
 }
 
+// Schedules a redisplay on the next loop() iteration - used after a manual
+// time-affecting change (e.g. timezone) so it doesn't wait for the next
+// natural 5-minute tick to show correctly.
+void TimeData::forceRedisplay(){
+    showTime = true;
+    showMinute = true;
+}
+
 void TimeData::setNightMode(bool state){
     Serial.print("Setting night mode to ");
     Serial.println(state);
@@ -234,8 +242,9 @@ void TimeData::animate(){
         }
     }
     if(design == "Rainbow"){
+        int matrixLen = NUM_LEDS - 4*num_leds_per_letter;
         uint8_t numLEDsToFill = 0;
-        for(int i=0; i<NUM_LEDS-4*num_leds_per_letter; i++){ // ignore minute leds
+        for(int i=0; i<matrixLen; i++){ // ignore minute leds
             if(activeLEDs[i]){
                 numLEDsToFill++;
             }
@@ -243,20 +252,37 @@ void TimeData::animate(){
         //fill_rainbow(leds,numLEDsToFill,hue,255/numLEDsToFill);
         uint8_t deltaHue = 255/numLEDsToFill;
         int ledHue = hue;
-        for(int i=0; i<NUM_LEDS; i++){
-            if(activeLEDs[i]){
-                leds[i] = CHSV(ledHue,255,255);
+        // Walk the matrix in true physical (raster) order rather than raw wiring
+        // index, so the sweep is smooth left-to-right on every row despite the
+        // serpentine wiring (odd rows run right-to-left - see
+        // physicalMatrixIndex()/docs/Wortuhr_worte.xlsx).
+        const int cols = 11;
+        for(int raster=0; raster<110; raster++){
+            int row = raster / cols;
+            int colInRaster = raster % cols;
+            int colInRow = (row % 2 == 0) ? colInRaster : (cols - 1 - colInRaster);
+            int logicalIndex = row * cols + colInRow;
+            bool active = activeLEDs[logicalIndex * num_leds_per_letter];
+            for(int j=0; j<num_leds_per_letter; j++){
+                int i = logicalIndex * num_leds_per_letter + j;
+                if(active){
+                    leds[i] = CHSV(ledHue,255,255);
+                }else{
+                    leds[i] = CRGB::Black;
+                }
+            }
+            if(active){
                 ledHue += deltaHue;
                 if(ledHue > 255){
                     ledHue -=255;
                 }
-            }else{
-                leds[i] = CRGB::Black;
             }
         }
-        for(int i = NUM_LEDS-4*num_leds_per_letter;i<NUM_LEDS;i++){
+        for(int i = matrixLen;i<NUM_LEDS;i++){
             if(activeLEDs[i]){
                 leds[i] = CHSV(hue,255,255);
+            }else{
+                leds[i] = CRGB::Black;
             }
         }
         FastLED.show();
@@ -313,6 +339,90 @@ void TimeData::updateColor(){
     FastLED.show();
 }
 
+// Standard, accurate RGB->hue conversion (scaled to FastLED's 0-255 hue range).
+uint8_t TimeData::rgbToHue256(CRGB c){
+    uint8_t maxc = max(c.r, max(c.g, c.b));
+    uint8_t minc = min(c.r, min(c.g, c.b));
+    int delta = maxc - minc;
+    if(delta == 0){
+        return 0; // achromatic (gray/white/black): hue is undefined
+    }
+    float hue;
+    if(maxc == c.r){
+        hue = 60.0f * ((float)(c.g - c.b) / delta);
+    }else if(maxc == c.g){
+        hue = 60.0f * (((float)(c.b - c.r) / delta) + 2.0f);
+    }else{
+        hue = 60.0f * (((float)(c.r - c.g) / delta) + 4.0f);
+    }
+    if(hue < 0) hue += 360.0f;
+    return (uint8_t)(hue / 360.0f * 256.0f);
+}
+
+// The 11x10 letter matrix is wired in a serpentine (boustrophedon) pattern:
+// even rows (0,2,4,...) run left-to-right, odd rows (1,3,5,...) run
+// right-to-left - confirmed against docs/Wortuhr_worte.xlsx's wiring map.
+// This converts a raw wiring/pixel index into a raster-order index (always
+// left-to-right, top-to-bottom) so a positional gradient sweeps smoothly
+// across the physical matrix instead of zigzagging every other row.
+int TimeData::physicalMatrixIndex(int pixelIndex){
+    const int cols = 11;
+    int logicalIndex = pixelIndex / num_leds_per_letter;
+    int row = logicalIndex / cols;
+    int colInRow = logicalIndex % cols;
+    int physicalCol = (row % 2 == 0) ? colInRow : (cols - 1 - colInRow);
+    return row * cols + physicalCol;
+}
+
+// Instant, non-blocking color application for live preview while dragging a
+// color/brightness/mode control. animate()'s Static/Palette/Random branches
+// only repaint via a blocking ~1s fade-from-black, which is too slow to feel
+// "live" during continuous input, so this mirrors their color choice but
+// writes it directly instead of blending in over 20 frames. Palette is an
+// exception: for preview only, it lights the ENTIRE letter matrix (not just
+// the currently displayed words) with a positional hue gradient - lowest to
+// highest offset from the base color - instead of animate()'s per-word
+// random offset, so the whole color range is visible at a glance. The 4
+// minute-indicator LEDs are kept off during a Palette preview - they aren't
+// part of the matrix the gradient is meant to show.
+void TimeData::previewColor(){
+    if(design == "Rainbow"){
+        // Rainbow repaints every loop iteration regardless of dirty flags,
+        // so it already reflects the new design on its own within one frame.
+        return;
+    }
+    bool activeSection = false;
+    CRGB color = baseColor;
+    int delta = 30;
+    int matrixLen = NUM_LEDS - 4*num_leds_per_letter;
+    // rgb2hsv_approximate() only approximates the inverse of FastLED's "rainbow"
+    // palette and can be badly wrong for some colors (e.g. it maps solid orange
+    // to a cyan/green hue) - use a plain, correct RGB->hue conversion instead so
+    // the gradient is actually centered on the picked base color.
+    uint8_t baseHue = rgbToHue256(baseColor);
+    for(int i=0;i<NUM_LEDS;i++){
+        bool inMatrix = i < matrixLen;
+        if(design == "Palette" && inMatrix){
+            int raster = physicalMatrixIndex(i);
+            int hueOffset = map(raster, 0, 109, -delta, delta);
+            leds[i] = CHSV(baseHue + hueOffset, 255, 255);
+        }else if(design == "Palette"){
+            leds[i] = CRGB::Black; // minute-indicator LEDs disabled during Palette preview
+        }else if(activeLEDs[i]){
+            if(!activeSection){
+                activeSection = true;
+                color = (design == "Random") ? CHSV(random(0,255),255,255) : baseColor;
+            }
+            leds[i] = color;
+        }else{
+            activeSection = false;
+            leds[i] = CRGB::Black;
+        }
+        updatedLEDs[i] = false;
+    }
+    FastLED.show();
+}
+
 void TimeData::setLED(int index, bool state){
     if(activeLEDs[index] != state){
         activeLEDs[index] = state;
@@ -336,7 +446,7 @@ void TimeData::displayTime(){
         }
     }
     bool timeShift = false;
-    if(0 <= minute < 5){
+    if(minute < 5){
         // nothing else then the hour
     }
     if(5 <= minute && minute < 10){
@@ -460,7 +570,7 @@ void TimeData::displayTime(){
                 }
             }
             timeShift = true;
-        }else if(2<r<3){
+        }else if(r <= 3){
             // Zehn nach halber
             for(int i=0; i<sizeof(zehn)/sizeof(zehn[0]); i++){
                 for (int j=0;j<num_leds_per_letter;j++){
@@ -606,7 +716,7 @@ String TimeData::getTimeString(){
     String timeStrings[6] = {esString,istString,"","","",""};
     uint8_t timeStringIndex = 2;
     bool timeShift = false;
-    if(0 <= minute < 5){
+    if(minute < 5){
 
     }
     if(5 <= minute && minute < 10){
@@ -670,7 +780,7 @@ String TimeData::getTimeString(){
             timeStrings[timeStringIndex++] = vorString;
             timeStrings[timeStringIndex++] = dreiviertelString;
             timeShift = true;
-        }else if(2<r<3){
+        }else if(r <= 3){
             // Zehn nach halber
             timeStrings[timeStringIndex++] = zehnString;
             timeStrings[timeStringIndex++] = nachString;

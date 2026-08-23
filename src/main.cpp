@@ -24,6 +24,7 @@ bool previewMode = false;
 unsigned long previewColorTriggerTimestamp = 0;
 String ssid;
 String password;
+String language = "de";
 DNSServer dnsServer;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -56,8 +57,8 @@ uint8_t deltaHueAllLEDs = 255/NUM_LEDS;
 
 uint8_t brightness = 32;
 CRGB baseColor = CRGB::Blue;
-String design = "Solid"; // Solid, Rainbow, Palette, Random
-String designOptions = "\"Solid\",\"Rainbow\",\"Palette\",\"Random\"";
+String design = "Static"; // Static, Rainbow, Palette, Random
+String designOptions = "\"Static\",\"Rainbow\",\"Palette\",\"Random\"";
 
 uint8_t brightnessDay = 32;
 CRGB baseColorDay;
@@ -80,6 +81,8 @@ void scanNetworks();
 void enableAP();
 void checkWiFi();
 void animationLoading();
+void animationSuccess();
+void displayIP(IPAddress ip);
 void setTimezone(String timezone);
 void initTime(String timezone);
 void printLocalTime();
@@ -144,6 +147,7 @@ void setup() {
       fadeToBlackBy(leds,NUM_LEDS-8,80);
       delay(50);
     }
+    displayIP(WiFi.softAPIP());
   }
   if(ssid != "" && password != ""){
     Serial.println("ssid: " + ssid + ", password: " + password);
@@ -160,10 +164,6 @@ void setup() {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
   initTime(timezone);
-
-  // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-  //   request->send(200, "text/plain", "Hi! I am ESP32.");
-  // });
 
   ElegantOTA.begin(&server);    // Start ElegantOTA
   ElegantOTA.onStart(onOTAStart);
@@ -218,15 +218,23 @@ void loop() {
 
 void getPreferences(){
   preferences.begin("wortuhr",false);
-  ssid = preferences.getString("ssid", ""); 
+  ssid = preferences.getString("ssid", "");
   password = preferences.getString("password", "");
+  language = preferences.getString("language", "de");
+  if (language != "de" && language != "en"){
+    language = "de";
+  }
+  timezone = preferences.getString("timezone", "CET-1CEST,M3.5.0,M10.5.0/3");
+  if (timezone == ""){
+    timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+  }
   // day variables
   baseColorDay.r = preferences.getInt("baseColorR", 255);
   baseColorDay.g = preferences.getInt("baseColorG", 255);
   baseColorDay.b = preferences.getInt("baseColorB", 255);
-  designDay = preferences.getString("design", "Solid");
-  if (designDay ==""){
-    designDay = "Solid";
+  designDay = preferences.getString("design", "Static");
+  if (designDay =="" || designDay == "Solid"){
+    designDay = "Static";
   }
   brightnessDay = preferences.getInt("brightness", 32);
   // night variables
@@ -238,9 +246,9 @@ void getPreferences(){
   baseColorNight.r = preferences.getInt("baseColorNightR", 255);
   baseColorNight.g = preferences.getInt("baseColorNightG", 255);
   baseColorNight.b = preferences.getInt("baseColorNightB", 255);
-  designNight = preferences.getString("designNight", "Solid");
-  if (designNight ==""){
-    designNight = "Solid";
+  designNight = preferences.getString("designNight", "Static");
+  if (designNight =="" || designNight == "Solid"){
+    designNight = "Static";
   }
   brightnessNight = preferences.getInt("brightnessNight", 5);
   preferences.end();
@@ -261,30 +269,34 @@ void connectWiFi(String ssid, String password){
       break;
     }
   }
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if(connected){
+    animationSuccess();
+  }
   for(int i=0;i<20;i++){
     fadeToBlackBy(leds,NUM_LEDS-8,80);
     delay(50);
   }
-  Serial.println(WiFi.localIP());
-  Serial.println(WiFi.localIP()[0]);
-  myTimeData.displayNumber(WiFi.localIP()[0]);
-  delay(2000);
-  Serial.println(WiFi.localIP()[1]);
-  myTimeData.displayNumber(WiFi.localIP()[1]);
-  delay(2000);
-  Serial.println(WiFi.localIP()[2]);
-  myTimeData.displayNumber(WiFi.localIP()[2]);
-  delay(2000);
-  Serial.println(WiFi.localIP()[3]);
-  myTimeData.displayNumber(WiFi.localIP()[3]);
-  delay(2000);
+  // If the STA connection failed, enableAP() was already called above and
+  // WiFi.localIP() (the station IP) would just read 0.0.0.0 - show the
+  // access point's own IP instead.
+  displayIP(connected ? WiFi.localIP() : WiFi.softAPIP());
+}
+
+void displayIP(IPAddress ip){
+  Serial.println(ip);
+  for(int i=0;i<4;i++){
+    Serial.println(ip[i]);
+    myTimeData.displayNumber(ip[i]);
+    delay(2000);
+  }
 }
 
 void enableAP(){
   APMode = true;
   WiFi.setHostname("Wortuhr");
   WiFi.mode(WIFI_AP); 
-  WiFi.softAP("Wortuhr", "FünfVorZwölf");
+  WiFi.softAP("Wortuhr");
   Serial.println("Creating access point..");
   // while (WiFi.status() != WL_IDLE_STATUS) {
   //   animationLoading();
@@ -315,37 +327,31 @@ void animationLoading(){
     FastLED.show();
     delay(50);
   }
-  // for(int i= 0; i<20;i++){
-  //   leds[52] = CRGB(beatsin16(20,10,255),beatsin16(20,10,128),0);
-  //   leds[53] = CRGB(beatsin16(20,10,255),beatsin16(20,10,128),0);
-  //   leds[54] = CRGB(beatsin16(20,10,255),beatsin16(20,10,128),0);
-  //   leds[55] = CRGB(beatsin16(20,10,255),beatsin16(20,10,128),0);
-  //   FastLED.show();
-  //   delay(50);
-  // }
 }
 
 void animationSuccess(){
+  // Pulse the 4 dedicated minute-indicator LEDs at the end of the strip -
+  // these aren't part of any letter, unlike the previously hardcoded 52-55.
+  int minuteStart = NUM_LEDS - 4*num_leds_per_letter;
   for(int i= 0; i<40;i++){
-    leds[52] = CRGB(0,beatsin16(20,10,128),0);
-    leds[53] = CRGB(0,beatsin16(20,10,128),0);
-    leds[54] = CRGB(0,beatsin16(20,10,128),0);
-    leds[55] = CRGB(0,beatsin16(20,10,128),0);
+    uint8_t v = beatsin16(20,10,128);
+    for(int j=minuteStart; j<NUM_LEDS; j++){
+      leds[j] = CRGB(0,v,0);
+    }
     FastLED.show();
     delay(50);
   }
   while(beatsin16(20,10,128)>20){
-    leds[52] = CRGB(0,beatsin16(20,10,128),0);
-    leds[53] = CRGB(0,beatsin16(20,10,128),0);
-    leds[54] = CRGB(0,beatsin16(20,10,128),0);
-    leds[55] = CRGB(0,beatsin16(20,10,128),0);
+    uint8_t v = beatsin16(20,10,128);
+    for(int j=minuteStart; j<NUM_LEDS; j++){
+      leds[j] = CRGB(0,v,0);
+    }
     FastLED.show();
     delay(50);
   }
-  leds[52] = CRGB::Black;
-  leds[53] = CRGB::Black;
-  leds[54] = CRGB::Black;
-  leds[55] = CRGB::Black;
+  for(int j=minuteStart; j<NUM_LEDS; j++){
+    leds[j] = CRGB::Black;
+  }
   FastLED.show();
 }
 
@@ -354,7 +360,7 @@ void initTime(String timezone){
     struct tm timeinfo;
 
     Serial.println("Setting up time");
-    configTime(0, 0, "pool.ntp.org");    // First connect to NTP server, with 0 TZ offset
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);    // First connect to NTP server
     if(!getLocalTime(&timeinfo)){
       Serial.println("  Failed to obtain time");
       return;

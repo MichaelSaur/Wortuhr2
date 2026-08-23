@@ -10,7 +10,7 @@ const String istString = "ISCH";
 const int fuenf[4] = {7,8,9,10};
 const String fuenfString = "FÜNF";
 const int zehn[4] = {18,19,20,21};
-const String zehnString = "ZEAH";
+const String zehnString = "ZEHN";
 const int zwanzig[7] = {11,12,13,14,15,16,17};
 const String zwanzigString = "ZWANZIG";
 const int vor[3] = {22,23,24};
@@ -24,7 +24,7 @@ const String viertelString = "VIERTEL";
 const int halb[4] = {44,45,46,47};
 const String halbString = "HALB";
 
-const String zeitNameStrings[12] = {"ZWÖLFE","OINSE","ZWOIE","DREIE","VIERE","FÜNF","SECHSE","SIEBENE","ACHDE","NEUNE","ZEHNE","ELF"};
+const String zeitNameStrings[12] = {"ZWÖLFE","EINSE","ZWEIE","DREIE","VIERE","FÜNF","SECHSE","SIEBENE","ACHDE","NEUNE","ZEHNE","ELF"};
 const int zeitNames[12][7] = {
     {93, 94, 95, 96, 97, 98, -1}, // 12
     {61, 62, 63, 64, 65, -1, -1}, // 01

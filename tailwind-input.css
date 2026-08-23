@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* daisyUI's stock "dark" theme packs base-100/200/300 within ~4% lightness of
+   each other, so cards, buttons and the page background all read as nearly
+   the same color, and its base-content text is a muted, low-contrast gray.
+   Widen the steps and use a crisper near-white text color instead. */
+[data-theme=dark]{
+    --b1: 222 20% 22%;
+    --b2: 222 18% 16%;
+    --b3: 222 22% 11%;
+    --bc: 210 20% 94%;
+}

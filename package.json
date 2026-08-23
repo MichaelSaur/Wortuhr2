@@ -1,0 +1,12 @@
+{
+  "name": "wortuhr-web-ui-build",
+  "private": true,
+  "description": "Dev-only Tailwind build for data/full.min.css. Not shipped to the ESP32.",
+  "scripts": {
+    "build:css": "node -r ./tailwind-node14-polyfill.js ./node_modules/tailwindcss/lib/cli.js -i ./tailwind-input.css -o ./data/full.min.css --minify"
+  },
+  "devDependencies": {
+    "daisyui": "3.9.4",
+    "tailwindcss": "3.4.17"
+  }
+}

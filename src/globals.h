@@ -18,6 +18,7 @@ extern bool previewMode;
 extern unsigned long previewColorTriggerTimestamp;
 extern String ssid;
 extern String password;
+extern String language;
 extern DNSServer dnsServer;
 extern AsyncWebServer server;
 extern String KnownSSIDs[10];
@@ -31,6 +32,7 @@ extern const int   daylightOffset_sec;
 extern String timezone;
 extern hw_timer_t *My_timer;
 extern TimeData myTimeData;
+void setTimezone(String timezone);
 
 // RTC
 extern bool RTCAvailable;

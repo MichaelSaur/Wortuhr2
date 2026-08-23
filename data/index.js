@@ -1,22 +1,51 @@
-var clockTime = 0;
+// Seconds since midnight in the clock's own (already localized) time, or null
+// until /api/config has loaded. This is plain time-of-day data, not a moment
+// in time, so it's formatted directly instead of being run through Date/UTC -
+// wrapping it in new Date(ms) would re-apply the browser's own timezone on
+// top of a value that's already local, shifting it by hours.
+var clockSeconds = null;
+
+function formatHMS(totalSeconds) {
+    totalSeconds = ((Math.floor(totalSeconds) % 86400) + 86400) % 86400;
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    return [h, m, s].map(n => String(n).padStart(2, "0")).join(":");
+}
+
 function updateTime() {
-    if(clockTime == 0){
-        document.getElementById("systemTime").textContent = "loading..."
-    }else{
-        clockTime = clockTime+1000;
-    const clock = new Date(clockTime);
-    const now = new Date();
-    document.getElementById("clockTime").textContent =
-        clock.toLocaleTimeString("de-DE");
     document.getElementById("systemTime").textContent =
-        now.toLocaleTimeString("de-DE");
+        new Date().toLocaleTimeString(currentLocale());
+    if (clockSeconds == null) {
+        document.getElementById("clockTime").textContent = t("loading");
+    } else {
+        clockSeconds += 1;
+        document.getElementById("clockTime").textContent = formatHMS(clockSeconds);
     }
 }
 setInterval(updateTime, 1000);
 updateTime();
 
 function syncTime() {
-    alert("Zeit wurde mit dem Endgerät synchronisiert.");
+    // The RTC stores naive local wall-clock time (not UTC, matching how the
+    // NTP sync path writes it), so /time?timeUnix= needs a value that decodes
+    // (as a UTC epoch) to this browser's local clock digits, not the true
+    // UTC instant.
+    const now = new Date();
+    const fakeEpoch = Math.floor(now.getTime() / 1000) - now.getTimezoneOffset() * 60;
+    fetch("time?timeUnix=" + fakeEpoch).then(res => {
+        if (!res.ok) {
+            alert(t("saveFailed"));
+            return;
+        }
+        // reflect the resynced time immediately instead of waiting for the next poll
+        return fetch("api/config").then(r => r.json()).then(data => {
+            clockSeconds = data.time;
+        });
+    }).catch(err => {
+        alert(t("saveFailed"));
+        console.error("failed to sync time", err);
+    });
 }
 
 // Haupt-Helligkeit
@@ -30,15 +59,67 @@ const nightBrightnessValue = document.getElementById("nightBrightnessValue");
 var colorPicker = new iro.ColorPicker();
 var nightColorPicker = new iro.ColorPicker();
 
-$("document").ready(()=>{
+// Live preview over the WebSocket while a user is dragging a color/brightness/mode
+// control, before hitting Save. Format: "preview:<day|night>:r,g,b,brightness,mode"
+function sendPreview(scope) {
+    if (!window.socket || socket.readyState !== WebSocket.OPEN) return;
+    const picker = scope === "night" ? nightColorPicker : colorPicker;
+    const slider = scope === "night" ? nightBrightnessSlider : brightnessSlider;
+    const modeSelect = document.getElementById(scope === "night" ? "nightMode" : "colorMode");
+    if (!picker.color || !modeSelect) return;
+    const msg = "preview:" + scope + ":" + picker.color.red + "," + picker.color.green + "," +
+        picker.color.blue + "," + slider.value + "," + modeSelect.value;
+    socket.send(msg);
+}
+
+// Curated list of common timezones as POSIX TZ strings (what configTime()/
+// setenv("TZ",...) on the ESP32 actually needs), each paired with a
+// human-readable label for the dropdown.
+const TIMEZONES = [
+    { value: "CET-1CEST,M3.5.0,M10.5.0/3", label: "Europe/Berlin (CET/CEST)" },
+    { value: "GMT0BST,M3.5.0/1,M10.5.0", label: "Europe/London (GMT/BST)" },
+    { value: "MSK-3", label: "Europe/Moscow (MSK)" },
+    { value: "EST5EDT,M3.2.0,M11.1.0", label: "America/New_York (EST/EDT)" },
+    { value: "CST6CDT,M3.2.0,M11.1.0", label: "America/Chicago (CST/CDT)" },
+    { value: "MST7MDT,M3.2.0,M11.1.0", label: "America/Denver (MST/MDT)" },
+    { value: "PST8PDT,M3.2.0,M11.1.0", label: "America/Los_Angeles (PST/PDT)" },
+    { value: "<-03>3", label: "America/Sao_Paulo" },
+    { value: "JST-9", label: "Asia/Tokyo (JST)" },
+    { value: "CST-8", label: "Asia/Shanghai (CST)" },
+    { value: "IST-5:30", label: "Asia/Kolkata (IST)" },
+    { value: "<+04>-4", label: "Asia/Dubai" },
+    { value: "AEST-10AEDT,M10.1.0,M4.1.0/3", label: "Australia/Sydney (AEST/AEDT)" },
+    { value: "NZST-12NZDT,M9.5.0,M4.1.0/3", label: "Pacific/Auckland (NZST/NZDT)" },
+    { value: "UTC0", label: "UTC" }
+];
+
+document.addEventListener("DOMContentLoaded", () => {
     window.socket = new WebSocket("ws://" + window.location.hostname + "/ws");
-    $.get("api/config",function(data, status){
-        if(status=="success"){
-            //data = JSON.parse(data);
+    fetch("api/config").then(res => {
+        if (!res.ok) throw new Error("request failed");
+        return res.json();
+    }).then(data => {
             window.config = data;
             console.log(data)
-            clockTime = data.time*1000
-            
+            clockSeconds = data.time
+
+            applyLanguage(data.language || "de");
+
+            // NTP sync isn't reachable in AP mode (no internet uplink) - point
+            // the user at the manual Sync button instead.
+            document.getElementById("apModeNote").style.display = data.apMode ? "block" : "none";
+
+            // Timezone
+            var timezoneOptions = TIMEZONES.map(tz =>
+                "<option value=\"" + tz.value + "\"" + (tz.value === data.timezone ? " selected" : "") + ">" + tz.label + "</option>"
+            );
+            if (!TIMEZONES.some(tz => tz.value === data.timezone)) {
+                // Device is set to something outside the curated list - keep it
+                // selectable/visible instead of silently switching it away.
+                timezoneOptions.unshift("<option value=\"" + data.timezone + "\" selected>" + data.timezone + "</option>");
+            }
+            document.getElementById("timezoneSelect").innerHTML = timezoneOptions.join("");
+
             // iro.js Color Picker – Hauptfarbe
             colorString = 'rgb(' + data.baseColor.r + ',' + data.baseColor.g + ',' + data.baseColor.b + ')';
             colorPicker = new iro.ColorPicker("#colorPicker", {
@@ -50,13 +131,10 @@ $("document").ready(()=>{
                 ]
             });
             colorPicker.on("color:change", function(color) {
-                colString = color.rgbString.replaceAll(" ","");
-                colString = colString.substr(4,colString.length-5);
-                console.log(colString + "," + brightnessSlider.value);
                  // make edit actions available
                 const block = document.getElementById("ColorEdit");
                 block.classList.remove("opacity-50", "pointer-events-none");
-                socket.send("day:"+colString + "," + brightnessSlider.value)
+                sendPreview("day");
             });
 
             // Mode
@@ -84,19 +162,6 @@ $("document").ready(()=>{
                 block.classList.add("opacity-50", "pointer-events-none");
             }
 
-            // Nachtmodus aktivieren/deaktivieren
-            nightModeToggle.addEventListener("change", function() {
-                const block = document.getElementById("nightSettings");
-                if (this.checked) {
-                    block.classList.remove("opacity-50", "pointer-events-none");
-                } else {
-                    block.classList.add("opacity-50", "pointer-events-none");
-                }
-                // make edit actions available
-                const block2 = document.getElementById("NightModeEdit");
-                block2.classList.remove("opacity-50", "pointer-events-none");
-            });   
-
             document.getElementById("nightStart").value = data.nightMode.startH.toString().padStart(2, "0") + ":" + data.nightMode.startM.toString().padStart(2, "0");
             document.getElementById("nightEnd").value = data.nightMode.endH.toString().padStart(2, "0") + ":" + data.nightMode.endM.toString().padStart(2, "0");
 
@@ -110,22 +175,22 @@ $("document").ready(()=>{
                 ]
             });
             nightColorPicker.on("color:change", function(color) {
-                console.log("Nachtfarbe:", color.hexString);
                  // make edit actions available
                 const block = document.getElementById("NightModeEdit");
                 block.classList.remove("opacity-50", "pointer-events-none");
+                sendPreview("night");
             });
 
             // Mode
-            var modes = []
+            var nightModes = []
             data.modes.forEach(element => {
                 if(element == data.nightMode.baseColor.mode){
-                    modes.push("<option selected>"+element+"</option>");
+                    nightModes.push("<option selected>"+element+"</option>");
                 }else{
-                    modes.push("<option>"+element+"</option>");
+                    nightModes.push("<option>"+element+"</option>");
                 }
             });
-            document.getElementById("nightMode").innerHTML = modes;
+            document.getElementById("nightMode").innerHTML = nightModes;
 
             nightBrightnessSlider.value =data.nightMode.baseColor.brightness;
             nightBrightnessValue.textContent = data.nightMode.baseColor.brightness;
@@ -141,9 +206,23 @@ $("document").ready(()=>{
             });
             document.getElementById("wifiSSID").innerHTML = ssids;
             document.getElementById("wifiPassword").value = data.password;
-        }
+    }).catch(err => {
+        console.error("failed to load config", err);
     });
-})
+
+    // Nachtmodus aktivieren/deaktivieren
+    nightModeToggle.addEventListener("change", function() {
+        const block = document.getElementById("nightSettings");
+        if (this.checked) {
+            block.classList.remove("opacity-50", "pointer-events-none");
+        } else {
+            block.classList.add("opacity-50", "pointer-events-none");
+        }
+        // make edit actions available
+        const block2 = document.getElementById("NightModeEdit");
+        block2.classList.remove("opacity-50", "pointer-events-none");
+    });
+});
 
 // Passwort anzeigen/verbergen
 document.getElementById("togglePassword").addEventListener("click", function () {
@@ -159,10 +238,12 @@ document.getElementById("togglePassword").addEventListener("click", function () 
 
 brightnessSlider.addEventListener("input", () => {
     brightnessValue.textContent = brightnessSlider.value;
+    sendPreview("day");
 });
 
 nightBrightnessSlider.addEventListener("input", () => {
     nightBrightnessValue.textContent = nightBrightnessSlider.value;
+    sendPreview("night");
 });
 
 ////////
@@ -174,13 +255,14 @@ colorMode.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("ColorEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-});  
+    sendPreview("day");
+});
 
 brightnessSlider.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("ColorEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-}); 
+});
 
 const ColorReset = document.getElementById("ColorReset");
 ColorReset.addEventListener("click", function() {
@@ -199,26 +281,39 @@ ColorReset.addEventListener("click", function() {
         ]
     });
     colorPicker.on("color:change", function(color) {
-        console.log("Farbe:", color.hexString);
+        sendPreview("day");
     });
     // make edit actions gray again
     const block = document.getElementById("ColorEdit");
     block.classList.add("opacity-50", "pointer-events-none");
-});  
+});
 
 const ColorSave = document.getElementById("ColorSave");
 ColorSave.addEventListener("click", function() {
     // send new data to clock
-     $.get("api/dayColor?mode=" + colorMode.value + "&r=" + colorPicker.color.red + "&g=" + colorPicker.color.green + "&b=" + colorPicker.color.blue + "&brightness=" + brightnessSlider.value, function(data, status){
-         if(status != "success"){
-            alert("failed to save data");
-            console.error("failed to save data",data,status)
-         }
+    fetch("api/dayColor", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            mode: colorMode.value,
+            r: colorPicker.color.red,
+            g: colorPicker.color.green,
+            b: colorPicker.color.blue,
+            brightness: brightnessSlider.value
+        })
+    }).then(res => {
+        if (!res.ok) {
+            alert(t("saveFailed"));
+            console.error("failed to save data", res.status);
+        }
+    }).catch(err => {
+        alert(t("saveFailed"));
+        console.error("failed to save data", err);
     });
     // make edit actions gray again
     const block = document.getElementById("ColorEdit");
     block.classList.add("opacity-50", "pointer-events-none");
-});    
+});
 
 ////////
 // NightColor
@@ -228,7 +323,7 @@ nightModeToggle.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("NightModeEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-});  
+});
 
 const nightStartTime = document.getElementById("nightStart");
 nightStartTime.addEventListener("change", function() {
@@ -242,20 +337,21 @@ nightEndTime.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("NightModeEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-});  
+});
 
 const nightColorMode = document.getElementById("nightMode");
 nightColorMode.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("NightModeEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-});  
+    sendPreview("night");
+});
 
 nightBrightnessSlider.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("NightModeEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-}); 
+});
 
 const NightModeReset = document.getElementById("NightModeReset");
 NightModeReset.addEventListener("click", function() {
@@ -267,12 +363,12 @@ NightModeReset.addEventListener("click", function() {
     } else {
         block2.classList.add("opacity-50", "pointer-events-none");
     }
-    nightMode.value = config.nightMode.baseColor.mode;
+    nightColorMode.value = config.nightMode.baseColor.mode;
     nightBrightnessSlider.value = config.nightMode.baseColor.brightness;
     nightBrightnessValue.textContent = config.nightMode.baseColor.brightness;
     nightStartTime.value = config.nightMode.startH.toString().padStart(2, "0") + ":" + config.nightMode.startM.toString().padStart(2, "0");
     nightEndTime.value = config.nightMode.endH.toString().padStart(2, "0") + ":" + config.nightMode.endM.toString().padStart(2, "0");
-    
+
     document.getElementById("nightColorPicker").innerHTML = "";
     colorString = 'rgb(' + config.nightMode.baseColor.r + ',' + config.nightMode.baseColor.g + ',' + config.nightMode.baseColor.b + ')'
     nightColorPicker = new iro.ColorPicker("#nightColorPicker", {
@@ -284,24 +380,49 @@ NightModeReset.addEventListener("click", function() {
         ]
     });
     nightColorPicker.on("color:change", function(color) {
-        console.log("Farbe:", color.hexString);
-         // make edit actions available
-                const block = document.getElementById("NightModeEdit");
-                block.classList.remove("opacity-50", "pointer-events-none");
+        // make edit actions available
+        const block = document.getElementById("NightModeEdit");
+        block.classList.remove("opacity-50", "pointer-events-none");
+        sendPreview("night");
     });
     // make edit actions gray again
     const block = document.getElementById("NightModeEdit");
     block.classList.add("opacity-50", "pointer-events-none");
-});  
+});
 
 const NightModeSave = document.getElementById("NightModeSave");
 NightModeSave.addEventListener("click", function() {
     // send new data to clock
-
+    const [startH, startM] = nightStartTime.value.split(":");
+    const [endH, endM] = nightEndTime.value.split(":");
+    fetch("colorNight", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            nightModeActiveInt: nightModeToggle.checked ? "1" : "0",
+            nightModeBeginHour: startH,
+            nightModeBeginMinute: startM,
+            nightModeEndHour: endH,
+            nightModeEndMinute: endM,
+            designNight: nightColorMode.value,
+            colorNightR: nightColorPicker.color.red,
+            colorNightG: nightColorPicker.color.green,
+            colorNightB: nightColorPicker.color.blue,
+            brightnessNight: nightBrightnessSlider.value
+        })
+    }).then(res => {
+        if (!res.ok) {
+            alert(t("saveFailed"));
+            console.error("failed to save data", res.status);
+        }
+    }).catch(err => {
+        alert(t("saveFailed"));
+        console.error("failed to save data", err);
+    });
     // make edit actions gray again
     const block = document.getElementById("NightModeEdit");
     block.classList.add("opacity-50", "pointer-events-none");
-});    
+});
 
 ////////
 // WiFi
@@ -312,14 +433,14 @@ wiFiSSID.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("WiFiEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-});  
+});
 
 const wiFiPasswd = document.getElementById("wifiPassword");
 wiFiPasswd.addEventListener("change", function() {
     // make edit actions available
     const block = document.getElementById("WiFiEdit");
     block.classList.remove("opacity-50", "pointer-events-none");
-}); 
+});
 
 const wiFiReset = document.getElementById("WiFiReset");
 wiFiReset.addEventListener("click", function() {
@@ -329,18 +450,142 @@ wiFiReset.addEventListener("click", function() {
     // make edit actions gray again
     const block = document.getElementById("WiFiEdit");
     block.classList.add("opacity-50", "pointer-events-none");
-});  
+});
 
 const wiFiSave = document.getElementById("WiFiSave");
 wiFiSave.addEventListener("click", function() {
     // send new data to clock
-    $.get("api/wifi?ssid=" + wiFiSSID.value + "&password=" + wiFiPasswd.value, function(data, status){
-         if(status != "success"){
-            alert("failed to save data");
-            console.error("failed to save data",data,status)
-         }
+    fetch("api/wifi", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            ssid: wiFiSSID.value,
+            password: wiFiPasswd.value
+        })
+    }).then(res => {
+        if (!res.ok) {
+            alert(t("saveFailed"));
+            console.error("failed to save data", res.status);
+        }
+    }).catch(err => {
+        alert(t("saveFailed"));
+        console.error("failed to save data", err);
     });
     // make edit actions gray again
     const block = document.getElementById("WiFiEdit");
     block.classList.add("opacity-50", "pointer-events-none");
-});    
+});
+
+const wiFiForget = document.getElementById("WiFiForget");
+wiFiForget.addEventListener("click", function() {
+    if (!confirm(t("forgetWifiConfirm"))) return;
+    // explicitly clear both fields, regardless of what's currently selected/typed
+    fetch("api/wifi", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ ssid: "", password: "" })
+    }).catch(err => {
+        console.error("failed to clear WiFi credentials", err);
+    });
+});
+
+////////
+// Language
+////////
+
+document.querySelectorAll(".langButton").forEach(btn => {
+    btn.addEventListener("click", function() {
+        const lang = this.dataset.lang;
+        applyLanguage(lang);
+        fetch("api/language", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ language: lang })
+        }).catch(err => console.error("failed to save language", err));
+    });
+});
+
+////////
+// Theme
+////////
+
+// Purely a per-browser display preference (unlike language), so it's kept in
+// localStorage only - never sent to the clock.
+const THEME_KEY = "wortuhr-theme";
+
+function applyTheme(mode) {
+    const effective = mode === "system"
+        ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : mode;
+    document.documentElement.setAttribute("data-theme", effective);
+    document.querySelectorAll(".themeButton").forEach(btn => {
+        btn.classList.toggle("btn-primary", btn.dataset.themeChoice === mode);
+    });
+}
+
+function getSavedTheme() {
+    try {
+        return localStorage.getItem(THEME_KEY) || "system";
+    } catch (e) {
+        return "system";
+    }
+}
+
+applyTheme(getSavedTheme());
+
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (getSavedTheme() === "system") applyTheme("system");
+});
+
+document.querySelectorAll(".themeButton").forEach(btn => {
+    btn.addEventListener("click", function() {
+        const mode = this.dataset.themeChoice;
+        try { localStorage.setItem(THEME_KEY, mode); } catch (e) {}
+        applyTheme(mode);
+    });
+});
+
+////////
+// Timezone
+////////
+
+const timezoneSelect = document.getElementById("timezoneSelect");
+timezoneSelect.addEventListener("change", function() {
+    // make edit actions available
+    const block = document.getElementById("TimeEdit");
+    block.classList.remove("opacity-50", "pointer-events-none");
+});
+
+const TimeReset = document.getElementById("TimeReset");
+TimeReset.addEventListener("click", function() {
+    timezoneSelect.value = config.timezone;
+    // make edit actions gray again
+    const block = document.getElementById("TimeEdit");
+    block.classList.add("opacity-50", "pointer-events-none");
+});
+
+const TimeSave = document.getElementById("TimeSave");
+TimeSave.addEventListener("click", function() {
+    fetch("api/timezone", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ timezone: timezoneSelect.value })
+    }).then(res => {
+        if (!res.ok) {
+            alert(t("saveFailed"));
+            console.error("failed to save timezone", res.status);
+            return;
+        }
+        // the clock resynced under the new timezone - refresh the displayed
+        // "Zeit der Uhr" time right away instead of waiting for the next poll
+        return fetch("api/config").then(r => r.json()).then(data => {
+            clockSeconds = data.time;
+        });
+    }).catch(err => {
+        alert(t("saveFailed"));
+        console.error("failed to save timezone", err);
+    });
+    // make edit actions gray again
+    const block = document.getElementById("TimeEdit");
+    block.classList.add("opacity-50", "pointer-events-none");
+});

@@ -1,0 +1,23 @@
+Basic info: Wortuhr
+- Project runs on ESP32, programmed in Platformio and the Arduino library
+- There is a LED stripe with WS2812B LEDs on Data pin 5
+- LEDs make out a sort of watch dial, that contains Letters in a 11 x 10 Matrix.
+- Letters in the Matrix form time-words when lit up, which are defined in words.h and describe the current time in german (swabian). 
+  For example the time 11:40 matches with the words [S',ISCH,FÜNF,VOR,DREIVIERTEL,ZWÖLFE].
+- The index of the individual LEDs for each word is given in words.h
+- Additionaly there is 4 LEDs at the end of the LED stripe, that mark the minutes passed after the time was accurate, so for example 11:43 would be [S',ISCH,FÜNF,VOR,DREIVIERTEL,ZWÖLFE] and 3 of the four Minute-LEDs would be lit up to state that it's 3 minutes past what the text says(11:40).
+- Some hardware-Models have 2 LEDs per Letter or Minute display, so the number of pixels per Matrix-Slot and Minute display shall be a definable variable, it must not be configurable on the fly.
+- The clock must be able to connect to a WiFi network
+- The credentials for this network are set from a Web UI hosted by the clock
+- If no credentials are set or the WiFi connect fails, AP mode must be enabled and the ESP32 hosts a WiFi Network called "Wortuhr" and no password.
+- Within this AP-Network, the Web UI shall be available as a captive portal, so when connecting to it, the WebUI opens automatically
+- The time must be synchronized via NTP if network connection is available.
+- Additionally a RCT module DS3231 might be available. The time must be synchronized from NTP to the RTC clock and used, if NTP sync is not available as backup
+- The color and Brightness in which the time is displayed must be configurable from the WebUI
+- The displayed text is animated in color with the following presets available: static (single color), random (random color per word), pallette (words have different color, based on a set base color), rainbow (time display is a animated rolling rainbow), ...
+- There must be a configurable Night-Mode, where a start and End-Time is configured in which Night-Mode is active. While NightMode is acive, there is a second configurable color and preset.
+- When the time changes, the word change must be animated.
+- Web UI must be small to fit in ESP32 spiffs storage and to reduce load times
+- The software must support OTA via ElegantOta
+- Web UI should be multi language (en and de)
+- It would be nice to have a instant preview when changes on the color and preset settings are done in the WebUI

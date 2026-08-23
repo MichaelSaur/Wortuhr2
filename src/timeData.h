@@ -20,11 +20,13 @@ class TimeData{
     void printTime();
     void displayTime();
     void updateColor();
+    void previewColor();
     void init();
     void displayNumber(int num);
     void animate();
     void checkNightMode();
-    
+    void forceRedisplay();
+
     private:
     bool timesync = true;
     bool showTime = false;
@@ -35,6 +37,8 @@ class TimeData{
     void setLED(int index, bool state);
     void displayDigit(uint8_t digit, uint8_t position);
     void setNightMode(bool state);
+    uint8_t rgbToHue256(CRGB c);
+    int physicalMatrixIndex(int pixelIndex);
 };
 
 #endif
