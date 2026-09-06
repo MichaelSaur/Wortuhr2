@@ -668,11 +668,20 @@ void TimeData::printTime(){
 }
 
 void TimeData::syncTime(){
+    bool wasSynced = ntpSynced;
     if (!APMode){
         struct tm timeinfo;
         if(!getLocalTime(&timeinfo)){
             Serial.println("Failed to obtain time 1");
+            ntpSynced = false;
+            if (wasSynced != ntpSynced){
+                ws.textAll("ntpSync:0");
+            }
             return;
+        }
+        ntpSynced = true;
+        if (wasSynced != ntpSynced){
+            ws.textAll("ntpSync:1");
         }
         int secondsoff = (timeinfo.tm_hour-hour)*3600;
         secondsoff += (timeinfo.tm_min-minute)*60;
@@ -701,6 +710,11 @@ void TimeData::syncTime(){
             rtc.adjust(dt); 
         }
     }else{
+        // AP mode has no internet uplink, so time can only ever come from the RTC/manual set
+        ntpSynced = false;
+        if (wasSynced != ntpSynced){
+            ws.textAll("ntpSync:0");
+        }
         // use rtc time if available
         if (RTCAvailable){
             DateTime now = rtc.now();

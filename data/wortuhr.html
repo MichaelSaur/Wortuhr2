@@ -115,6 +115,10 @@
                     <div class="flex flex-col">
                         <label class="label p-0"><span class="label-text" data-i18n="clockTimeLabel">Zeit der Uhr</span></label>
                         <div id="clockTime" class="text-xl font-semibold"></div>
+                        <div id="ntpStatus" class="text-sm mt-1 flex items-center gap-2">
+                            <span id="ntpStatusDot" class="inline-block w-2.5 h-2.5 rounded-full bg-error"></span>
+                            <span id="ntpStatusText" data-i18n="ntpNotSynced">NTP nicht synchronisiert</span>
+                        </div>
                     </div>
                 </div>
                 <div class="flex">
@@ -142,6 +146,14 @@
                 <label class="label"><span class="label-text" data-i18n="timezoneLabel">Zeitzone</span></label>
                 <select class="select select-bordered" id="timezoneSelect">
                 </select>
+            </div>
+
+            <div class="form-control mt-4">
+                <label class="label"><span class="label-text" data-i18n="ntpServerLabel">NTP-Server</span></label>
+                <input type="text" class="input input-bordered" id="ntpServerInput" data-i18n-placeholder="ntpServerPlaceholder" placeholder="pool.ntp.org" spellcheck="false" autocapitalize="off">
+                <label class="label" id="ntpServerErrorLabel" style="display:none">
+                    <span class="label-text-alt text-error" data-i18n="ntpServerInvalid">Ungültiger NTP-Server</span>
+                </label>
             </div>
         </div>
     </div>

@@ -34,12 +34,13 @@ String KnownSSIDs[10];
 String KnownSSIDsList = "";
 
 // Time
-const char* ntpServer = "pool.ntp.org";
+String ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
 const int   daylightOffset_sec = 3600;
 String timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
 hw_timer_t *My_timer = NULL;
 TimeData myTimeData = TimeData();
+bool ntpSynced = false;
 
 // RTC
 bool RTCAvailable = true;
@@ -144,7 +145,7 @@ void setup() {
     // --> AP mode
     enableAP();
     for(int i=0;i<20;i++){
-      fadeToBlackBy(leds,NUM_LEDS-8,80);
+      fadeToBlackBy(leds,NUM_LEDS-4*num_leds_per_letter,80);
       delay(50);
     }
     displayIP(WiFi.softAPIP());
@@ -228,6 +229,10 @@ void getPreferences(){
   if (timezone == ""){
     timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
   }
+  ntpServer = preferences.getString("ntpServer", "pool.ntp.org");
+  if (ntpServer == ""){
+    ntpServer = "pool.ntp.org";
+  }
   // day variables
   baseColorDay.r = preferences.getInt("baseColorR", 255);
   baseColorDay.g = preferences.getInt("baseColorG", 255);
@@ -271,10 +276,14 @@ void connectWiFi(String ssid, String password){
   }
   bool connected = WiFi.status() == WL_CONNECTED;
   if(connected){
+    // animationLoading() leaves the matrix mid-fade (residual spinner
+    // pixels) - clear it so the success flash plays on a blank display.
+    FastLED.clear();
+    FastLED.show();
     animationSuccess();
   }
   for(int i=0;i<20;i++){
-    fadeToBlackBy(leds,NUM_LEDS-8,80);
+    fadeToBlackBy(leds,NUM_LEDS-4*num_leds_per_letter,80);
     delay(50);
   }
   // If the STA connection failed, enableAP() was already called above and
@@ -360,7 +369,7 @@ void initTime(String timezone){
     struct tm timeinfo;
 
     Serial.println("Setting up time");
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);    // First connect to NTP server
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer.c_str());    // First connect to NTP server
     if(!getLocalTime(&timeinfo)){
       Serial.println("  Failed to obtain time");
       return;

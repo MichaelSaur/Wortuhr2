@@ -26,10 +26,11 @@ extern String KnownSSIDsList;
 extern AsyncWebSocket ws;
 
 // Time
-extern const char* ntpServer;
+extern String ntpServer;
 extern const long  gmtOffset_sec;
 extern const int   daylightOffset_sec;
 extern String timezone;
+extern bool ntpSynced;
 extern hw_timer_t *My_timer;
 extern TimeData myTimeData;
 void setTimezone(String timezone);

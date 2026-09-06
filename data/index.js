@@ -72,6 +72,28 @@ function sendPreview(scope) {
     socket.send(msg);
 }
 
+// Mirrors the firmware's isValidNtpServer() (web.cpp): an NTP server is a
+// plain hostname or IPv4 address - no scheme/path/port - so this checks it
+// as a hostname: dot-separated labels, each 1-63 chars of [A-Za-z0-9-], no
+// leading/trailing hyphen per label.
+function isValidNtpServer(value) {
+    if (!value || value.length > 253) return false;
+    return value.split(".").every(label =>
+        label.length >= 1 && label.length <= 63 &&
+        /^[A-Za-z0-9-]+$/.test(label) &&
+        !label.startsWith("-") && !label.endsWith("-")
+    );
+}
+
+function setNtpStatus(synced) {
+    const dot = document.getElementById("ntpStatusDot");
+    const text = document.getElementById("ntpStatusText");
+    dot.classList.toggle("bg-success", !!synced);
+    dot.classList.toggle("bg-error", !synced);
+    text.dataset.i18n = synced ? "ntpSynced" : "ntpNotSynced";
+    text.textContent = t(text.dataset.i18n);
+}
+
 // Curated list of common timezones as POSIX TZ strings (what configTime()/
 // setenv("TZ",...) on the ESP32 actually needs), each paired with a
 // human-readable label for the dropdown.
@@ -95,6 +117,13 @@ const TIMEZONES = [
 
 document.addEventListener("DOMContentLoaded", () => {
     window.socket = new WebSocket("ws://" + window.location.hostname + "/ws");
+    // Backend pushes "ntpSync:0"/"ntpSync:1" whenever a (re)sync attempt
+    // changes status - e.g. the periodic 30-min resync - so the indicator
+    // stays live without polling.
+    window.socket.addEventListener("message", function(event) {
+        if (event.data === "ntpSync:1") setNtpStatus(true);
+        else if (event.data === "ntpSync:0") setNtpStatus(false);
+    });
     fetch("api/config").then(res => {
         if (!res.ok) throw new Error("request failed");
         return res.json();
@@ -119,6 +148,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 timezoneOptions.unshift("<option value=\"" + data.timezone + "\" selected>" + data.timezone + "</option>");
             }
             document.getElementById("timezoneSelect").innerHTML = timezoneOptions.join("");
+
+            // NTP
+            document.getElementById("ntpServerInput").value = data.ntpServer || "";
+            document.getElementById("ntpServerErrorLabel").style.display = "none";
+            setNtpStatus(!!data.ntpSynced);
 
             // iro.js Color Picker – Hauptfarbe
             colorString = 'rgb(' + data.baseColor.r + ',' + data.baseColor.g + ',' + data.baseColor.b + ')';
@@ -556,9 +590,20 @@ timezoneSelect.addEventListener("change", function() {
     block.classList.remove("opacity-50", "pointer-events-none");
 });
 
+const ntpServerInput = document.getElementById("ntpServerInput");
+const ntpServerErrorLabel = document.getElementById("ntpServerErrorLabel");
+ntpServerInput.addEventListener("input", function() {
+    // make edit actions available
+    const block = document.getElementById("TimeEdit");
+    block.classList.remove("opacity-50", "pointer-events-none");
+    ntpServerErrorLabel.style.display = isValidNtpServer(ntpServerInput.value) ? "none" : "block";
+});
+
 const TimeReset = document.getElementById("TimeReset");
 TimeReset.addEventListener("click", function() {
     timezoneSelect.value = config.timezone;
+    ntpServerInput.value = config.ntpServer;
+    ntpServerErrorLabel.style.display = "none";
     // make edit actions gray again
     const block = document.getElementById("TimeEdit");
     block.classList.add("opacity-50", "pointer-events-none");
@@ -566,24 +611,37 @@ TimeReset.addEventListener("click", function() {
 
 const TimeSave = document.getElementById("TimeSave");
 TimeSave.addEventListener("click", function() {
-    fetch("api/timezone", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ timezone: timezoneSelect.value })
-    }).then(res => {
-        if (!res.ok) {
+    if (!isValidNtpServer(ntpServerInput.value)) {
+        ntpServerErrorLabel.style.display = "block";
+        return;
+    }
+    Promise.all([
+        fetch("api/timezone", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ timezone: timezoneSelect.value })
+        }),
+        fetch("api/ntp", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ ntpServer: ntpServerInput.value })
+        })
+    ]).then(([timezoneRes, ntpRes]) => {
+        if (!timezoneRes.ok || !ntpRes.ok) {
             alert(t("saveFailed"));
-            console.error("failed to save timezone", res.status);
+            console.error("failed to save time settings", timezoneRes.status, ntpRes.status);
             return;
         }
-        // the clock resynced under the new timezone - refresh the displayed
-        // "Zeit der Uhr" time right away instead of waiting for the next poll
+        // the clock resynced under the new timezone/NTP server - refresh the
+        // displayed "Zeit der Uhr" time and sync status right away instead of
+        // waiting for the next poll
         return fetch("api/config").then(r => r.json()).then(data => {
             clockSeconds = data.time;
+            setNtpStatus(!!data.ntpSynced);
         });
     }).catch(err => {
         alert(t("saveFailed"));
-        console.error("failed to save timezone", err);
+        console.error("failed to save time settings", err);
     });
     // make edit actions gray again
     const block = document.getElementById("TimeEdit");

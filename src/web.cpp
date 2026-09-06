@@ -6,10 +6,33 @@
 #include <globals.h>
 #include <timeData.h>
 #include "SPIFFS.h"
+#include "time.h"
 
 String getIndexHTML();
 String templateProcessor(const String& var);
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+
+// A NTP server is given as a plain hostname (or IPv4 address) - no scheme,
+// path, or port - so this validates it as a hostname: dot-separated labels,
+// each 1-63 chars of [A-Za-z0-9-], no leading/trailing hyphen per label.
+bool isValidNtpServer(const String& s){
+    int len = s.length();
+    if (len == 0 || len > 253) return false;
+    int labelStart = 0;
+    for (int i = 0; i <= len; i++){
+        if (i == len || s[i] == '.'){
+            int labelLen = i - labelStart;
+            if (labelLen < 1 || labelLen > 63) return false;
+            if (s[labelStart] == '-' || s[i-1] == '-') return false;
+            for (int j = labelStart; j < i; j++){
+                char c = s[j];
+                if (!isalnum((unsigned char)c) && c != '-') return false;
+            }
+            labelStart = i + 1;
+        }
+    }
+    return true;
+}
 
 void initWebSocket() {
   ws.onEvent(onEvent);
@@ -70,7 +93,7 @@ void setupServer(){
         }
         config += "\"startH\":" + String(nightModeBeginHour) + ",\"startM\":" + String(nightModeBeginMinute) + ",\"endH\":" + String(nightModeEndHour) + ",\"endM\":" + String(nightModeEndMinute) + ",";
         config += "\"baseColor\":{\"r\":" + String(baseColorNight.r) + ",\"g\":" + String(baseColorNight.g) + ",\"b\":" + String(baseColorNight.b) + ",\"mode\":\"" + designNight + "\",\"brightness\":" + String(brightnessNight) + "}},";        
-        config += "\"WiFi\":\"" + ssid + "\",\"password\":\"" + password + "\",\"modes\":[" + designOptions + "],\"wiFiSSIDs\":[" + KnownSSIDsList + "],\"language\":\"" + language + "\",\"timezone\":\"" + timezone + "\",\"apMode\":" + (APMode ? "true" : "false") + "}";
+        config += "\"WiFi\":\"" + ssid + "\",\"password\":\"" + password + "\",\"modes\":[" + designOptions + "],\"wiFiSSIDs\":[" + KnownSSIDsList + "],\"language\":\"" + language + "\",\"timezone\":\"" + timezone + "\",\"ntpServer\":\"" + ntpServer + "\",\"ntpSynced\":" + (ntpSynced ? "true" : "false") + ",\"apMode\":" + (APMode ? "true" : "false") + "}";
         request->send_P(200, "application/json", config.c_str()); 
     });
 
@@ -379,6 +402,29 @@ void setupServer(){
         setTimezone(timezone);
         myTimeData.syncTime();
         myTimeData.forceRedisplay();
+        request->send_P(200, "text/html","ok");
+    });
+
+    server.on("/api/ntp", HTTP_POST, [] (AsyncWebServerRequest *request) {
+        if (!request->hasParam("ntpServer", true)) {
+            request->send_P(400, "text/html","No NTP server given");
+            return;
+        }
+        String newNtpServer = request->getParam("ntpServer", true)->value();
+        newNtpServer.trim();
+        if (!isValidNtpServer(newNtpServer)) {
+            request->send_P(400, "text/html","invalid NTP server");
+            return;
+        }
+        ntpServer = newNtpServer;
+        preferences.begin("wortuhr",false);
+        preferences.putString("ntpServer", newNtpServer);
+        preferences.end();
+        if (!APMode){
+            configTime(gmtOffset_sec, daylightOffset_sec, ntpServer.c_str());
+            myTimeData.syncTime();
+            myTimeData.forceRedisplay();
+        }
         request->send_P(200, "text/html","ok");
     });
 
