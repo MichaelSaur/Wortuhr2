@@ -319,6 +319,9 @@ ColorReset.addEventListener("click", function() {
         ]
     });
     colorPicker.on("color:change", function(color) {
+        // make edit actions available
+        const block = document.getElementById("ColorEdit");
+        block.classList.remove("opacity-50", "pointer-events-none");
         sendPreview("day");
     });
     // make edit actions gray again
