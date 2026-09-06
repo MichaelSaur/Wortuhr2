@@ -667,6 +667,15 @@ void TimeData::printTime(){
     Serial.println(getTimeString());
 }
 
+// syncTime() blocks for up to 5s (getLocalTime()'s default timeout) waiting
+// on the NTP client, which is only safe to do from the main loop() task -
+// calling it directly from an AsyncWebServer request handler blocks the
+// async_tcp task instead and crashes the device. Callers triggering a sync
+// from a web handler must use this to defer the actual work to loop().
+void TimeData::requestSync(){
+    timesync = true;
+}
+
 void TimeData::syncTime(){
     bool wasSynced = ntpSynced;
     if (!APMode){

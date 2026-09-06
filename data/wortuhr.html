@@ -69,7 +69,7 @@
     </button>
 </div>
 <h1 class="text-3xl font-bold text-center text-base-content mb-8" data-i18n="pageTitle">Wortuhr Einstellungen</h1>
-<div class="max-w-4xl mx-auto grid gap-6">
+<div class="max-w-4xl mx-auto grid grid-cols-1 gap-6">
     <!-- Zeit -->
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
@@ -88,10 +88,10 @@
                     </button>
                 </div>
             </div>
-            <div class="mt-4 flex">
-                <div class="flex" style="margin-right:2em">
+            <div class="mt-4 flex flex-col gap-6 sm:flex-row">
+                <div class="flex flex-col items-center text-center gap-1 sm:flex-row sm:items-start sm:text-left sm:gap-0 sm:mr-8">
                     <div class="flex flex-col justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1100" viewBox="0 0 1100 1100" version="1.1" class="w-10 h-10 mr-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1100" viewBox="0 0 1100 1100" version="1.1" class="w-10 h-10 sm:w-14 sm:h-14 sm:mr-4">
                             <rect x="50" y="50" height="1000" width="1000" stroke="currentColor" rx="10" style="stroke-width:30" fill="none"/>
                             <circle cx="125" cy="125" r="30" fill="currentColor"/>
                             <circle cx="975" cy="125" r="30" fill="currentColor"/>
@@ -112,7 +112,7 @@
                             <line x1="588" y1="880" x2="888" y2="880" stroke="currentColor" style="stroke-width:30" stroke-linecap="round"/>
                         </svg>
                     </div>
-                    <div class="flex flex-col">
+                    <div class="flex flex-col items-center sm:items-start">
                         <label class="label p-0"><span class="label-text" data-i18n="clockTimeLabel">Zeit der Uhr</span></label>
                         <div id="clockTime" class="text-xl font-semibold"></div>
                         <div id="ntpStatus" class="text-sm mt-1 flex items-center gap-2">
@@ -121,17 +121,24 @@
                         </div>
                     </div>
                 </div>
-                <div class="flex">
-                    <div class="flex flex-col justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" version="1.1" class="w-10 h-10">
+                <div class="flex flex-col items-center text-center gap-1 sm:flex-row sm:items-start sm:text-left sm:gap-0" id="phoneTimeBlock">
+                    <div class="flex flex-col justify-center sm:hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" version="1.1" class="w-10 h-10 sm:mr-4">
                             <path d="M 148.500 17.393 C 137.286 20.975, 128.522 28.573, 123.582 38.997 L 120.500 45.500 120.500 256 L 120.500 466.500 123.582 473.003 C 127.530 481.333, 134.667 488.470, 142.997 492.418 L 149.500 495.500 256 495.500 L 362.500 495.500 369.003 492.418 C 377.333 488.470, 384.470 481.333, 388.418 473.003 L 391.500 466.500 391.500 256 L 391.500 45.500 388.418 38.997 C 384.470 30.667, 377.333 23.530, 369.003 19.582 L 362.500 16.500 257.500 16.308 C 174.616 16.156, 151.657 16.384, 148.500 17.393 M 153.713 33.422 C 147.473 35.100, 142.121 39.524, 139.004 45.580 L 136.500 50.446 136.235 252.973 C 136.047 396.289, 136.288 457.041, 137.060 460.771 C 138.471 467.589, 143.156 473.690, 149.483 476.945 L 154.447 479.500 256 479.500 L 357.553 479.500 362.517 476.945 C 368.731 473.748, 373.485 467.627, 374.908 460.994 C 376.449 453.807, 376.449 58.193, 374.908 51.006 C 373.486 44.375, 368.732 38.253, 362.521 35.055 C 357.768 32.607, 356.724 32.486, 337.530 32.171 L 317.500 31.843 312.304 42.325 C 306.232 54.575, 302.657 59.001, 296.499 61.895 C 292.207 63.913, 290.534 64, 256 64 C 221.466 64, 219.793 63.913, 215.501 61.895 C 209.358 59.008, 205.776 54.585, 199.718 42.404 L 194.544 32 176.522 32.067 C 165.184 32.110, 156.725 32.612, 153.713 33.422 M 210.174 450.314 C 207.195 453.486, 207.261 458.957, 210.314 461.826 C 212.618 463.989, 212.842 464, 256.140 464 L 299.651 464 301.826 461.686 C 304.805 458.514, 304.739 453.043, 301.686 450.174 C 299.382 448.011, 299.158 448, 255.860 448 L 212.349 448 210.174 450.314" stroke="none" fill="currentColor" fill-rule="evenodd"/>
                         </svg>
                     </div>
-                    <div class="flex flex-col">
+                    <div class="hidden sm:flex sm:flex-col sm:justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-10 h-10 sm:w-14 sm:h-14 sm:mr-4">
+                            <rect x="2" y="3" width="20" height="14" rx="2"/>
+                            <line x1="8" y1="21" x2="16" y2="21"/>
+                            <line x1="12" y1="17" x2="12" y2="21"/>
+                        </svg>
+                    </div>
+                    <div class="flex flex-col items-center sm:items-start">
                         <label class="label p-0"><span class="label-text" data-i18n="currentTimeLabel">Aktuelle Zeit</span></label>
                         <div id="systemTime" class="text-xl font-semibold"></div>
-                        <div id="apModeNote" class="text-sm mt-1" style="display:none;max-width:16em" data-i18n="apModeNote">Kein Internet – NTP-Sync nicht möglich. Zeit hier setzen:</div>
-                        <button class="btn btn-sm mt-2 self-start" onclick="syncTime()">
+                        <div id="apModeNote" class="text-sm mt-1 text-center sm:text-left" style="display:none;max-width:16em" data-i18n="apModeNote">Kein Internet – NTP-Sync nicht möglich. Zeit hier setzen:</div>
+                        <button class="btn btn-sm mt-2 self-center sm:self-start" onclick="syncTime()">
                             <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" version="1.1" style="height:1.2em;width:1.2em">
                                 <path d="M 239.500 8.587 C 215.045 11.015, 198.300 14.283, 180 20.199 C 162.202 25.954, 153.670 30.180, 150.944 34.591 C 145.907 42.740, 148.105 53.394, 155.885 58.542 C 161.848 62.489, 167.063 62.172, 180.441 57.053 C 258.169 27.311, 347.439 46.444, 406.498 105.502 C 451.055 150.059, 473.977 213.511, 467.937 275.576 C 466.440 290.959, 462.634 309.119, 457.926 323.337 C 453.015 338.169, 442.317 360.202, 433.813 373 L 427.500 382.500 426.931 376 C 426.266 368.410, 425.326 366.371, 420.560 362.186 C 412.258 354.898, 399.429 357.718, 394.250 367.970 C 392.053 372.320, 392 373.193, 392 405.289 L 392 438.154 394.923 441.077 L 397.846 444 431.107 444 C 462.833 444, 464.568 443.903, 468.698 441.904 C 478.563 437.128, 481.145 423.258, 473.683 415.118 C 470.148 411.262, 464.174 409.046, 457.243 409.022 L 450.986 409 456.509 401.531 C 480.052 369.697, 496.262 328.648, 502.134 286 C 503.991 272.506, 503.721 236.379, 501.661 222.695 C 493.257 166.891, 469.699 119.601, 431.049 80.952 C 392.568 42.471, 344.343 18.441, 289.500 10.420 C 279.701 8.987, 247.403 7.803, 239.500 8.587 M 43.223 70.119 C 33.418 74.972, 30.887 88.777, 38.317 96.882 C 41.852 100.738, 47.826 102.954, 54.757 102.978 L 61.014 103 55.682 110.250 C 32.470 141.814, 16.583 180.965, 10.339 222 C 8.148 236.396, 7.867 272.923, 9.838 287 C 17.980 345.140, 43.518 395.573, 84.895 435.221 C 141.026 489.009, 221.745 513.751, 297.500 500.390 C 317.660 496.834, 345.908 488.174, 355.300 482.670 C 366.237 476.260, 366.729 460.451, 356.211 453.364 C 350.110 449.252, 346.697 449.417, 333.165 454.479 C 275.822 475.929, 216.359 473.340, 162.500 447.046 C 119.418 426.014, 85.986 392.582, 64.954 349.500 C 35.811 289.804, 35.816 222.087, 64.968 162.500 C 68.735 154.800, 74.671 144.225, 78.159 139 L 84.500 129.500 85.069 136 C 85.734 143.590, 86.674 145.629, 91.440 149.814 C 99.742 157.102, 112.571 154.282, 117.750 144.030 C 119.947 139.680, 120 138.807, 120 106.711 L 120 73.846 117.077 70.923 L 114.154 68 80.827 68.001 C 48.900 68.002, 47.320 68.091, 43.223 70.119" stroke="none" fill="currentColor" fill-rule="evenodd"/>
                                 <path d="M 331.612 147.250 C 330.237 148.488, 301.579 185.500, 267.928 229.500 C 234.276 273.500, 206.439 309.839, 206.069 310.252 C 205.698 310.666, 199.033 304.944, 191.258 297.537 C 183.483 290.129, 175.969 283.779, 174.561 283.426 C 169.643 282.192, 166.595 284.046, 155.750 294.871 C 145.310 305.290, 145 305.728, 144.991 310.050 L 144.983 314.500 169.367 338.743 C 186.373 355.651, 195.076 363.587, 198.126 364.971 C 208.102 369.498, 219.201 366.305, 226.601 356.779 C 228.857 353.876, 261.370 311.495, 298.851 262.599 C 371.644 167.640, 369.270 171.110, 365.841 164.703 C 364.577 162.341, 363.839 161.707, 350.769 151.750 C 343.334 146.086, 341.280 145, 338.010 145 C 335.374 145, 333.302 145.729, 331.612 147.250" stroke="none" fill="currentColor" fill-rule="evenodd"/>
@@ -142,18 +149,20 @@
                 </div>
             </div>
 
-            <div class="form-control mt-4">
-                <label class="label"><span class="label-text" data-i18n="timezoneLabel">Zeitzone</span></label>
-                <select class="select select-bordered" id="timezoneSelect">
-                </select>
-            </div>
+            <div class="mt-4 flex flex-col gap-4 sm:flex-row">
+                <div class="form-control sm:flex-1">
+                    <label class="label"><span class="label-text" data-i18n="timezoneLabel">Zeitzone</span></label>
+                    <select class="select select-bordered" id="timezoneSelect">
+                    </select>
+                </div>
 
-            <div class="form-control mt-4">
-                <label class="label"><span class="label-text" data-i18n="ntpServerLabel">NTP-Server</span></label>
-                <input type="text" class="input input-bordered" id="ntpServerInput" data-i18n-placeholder="ntpServerPlaceholder" placeholder="pool.ntp.org" spellcheck="false" autocapitalize="off">
-                <label class="label" id="ntpServerErrorLabel" style="display:none">
-                    <span class="label-text-alt text-error" data-i18n="ntpServerInvalid">Ungültiger NTP-Server</span>
-                </label>
+                <div class="form-control sm:flex-1">
+                    <label class="label"><span class="label-text" data-i18n="ntpServerLabel">NTP-Server</span></label>
+                    <input type="text" class="input input-bordered" id="ntpServerInput" data-i18n-placeholder="ntpServerPlaceholder" placeholder="pool.ntp.org" spellcheck="false" autocapitalize="off">
+                    <label class="label" id="ntpServerErrorLabel" style="display:none">
+                        <span class="label-text-alt text-error" data-i18n="ntpServerInvalid">Ungültiger NTP-Server</span>
+                    </label>
+                </div>
             </div>
         </div>
     </div>

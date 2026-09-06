@@ -17,6 +17,7 @@ class TimeData{
     void loop();
     String getTimeString();
     void syncTime();
+    void requestSync();
     void printTime();
     void displayTime();
     void updateColor();

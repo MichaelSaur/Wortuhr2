@@ -7,6 +7,7 @@
 #include <timeData.h>
 #include "SPIFFS.h"
 #include "time.h"
+#include <sys/time.h>
 
 String getIndexHTML();
 String templateProcessor(const String& var);
@@ -400,8 +401,7 @@ void setupServer(){
         preferences.putString("timezone", newTimezone);
         preferences.end();
         setTimezone(timezone);
-        myTimeData.syncTime();
-        myTimeData.forceRedisplay();
+        myTimeData.requestSync();
         request->send_P(200, "text/html","ok");
     });
 
@@ -421,9 +421,22 @@ void setupServer(){
         preferences.putString("ntpServer", newNtpServer);
         preferences.end();
         if (!APMode){
+            // getLocalTime() below only checks that the system clock holds
+            // *some* plausible time - it was already set by the previous
+            // (working) server, so without this reset it would report
+            // success even if the new server never responds. Invalidating
+            // it first forces a genuine test of the new server.
+            struct timeval tv = {0, 0};
+            settimeofday(&tv, NULL);
             configTime(gmtOffset_sec, daylightOffset_sec, ntpServer.c_str());
-            myTimeData.syncTime();
-            myTimeData.forceRedisplay();
+            // Reflect the reset immediately; requestSync() defers the actual
+            // (blocking) check of the new server to the main loop, since
+            // running it here would block the async_tcp task and crash.
+            if (ntpSynced){
+                ntpSynced = false;
+                ws.textAll("ntpSync:0");
+            }
+            myTimeData.requestSync();
         }
         request->send_P(200, "text/html","ok");
     });
@@ -437,7 +450,7 @@ void setupServer(){
             if (RTCAvailable){
                 rtc.adjust(dt);
             }
-            myTimeData.syncTime(); // force clock to syschronise from rtc if in AP mode
+            myTimeData.requestSync(); // force clock to syschronise from rtc if in AP mode
         }
         request->redirect("/");
     });

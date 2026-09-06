@@ -92,6 +92,10 @@ function setNtpStatus(synced) {
     dot.classList.toggle("bg-error", !synced);
     text.dataset.i18n = synced ? "ntpSynced" : "ntpNotSynced";
     text.textContent = t(text.dataset.i18n);
+    // Once NTP sync is confirmed, the clock keeps itself accurate on its own -
+    // the phone-time reference and manual Sync button only matter as a
+    // fallback while it isn't synced.
+    document.getElementById("phoneTimeBlock").style.display = synced ? "none" : "";
 }
 
 // Curated list of common timezones as POSIX TZ strings (what configTime()/
