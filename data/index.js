@@ -61,15 +61,39 @@ var nightColorPicker = new iro.ColorPicker();
 
 // Live preview over the WebSocket while a user is dragging a color/brightness/mode
 // control, before hitting Save. Format: "preview:<day|night>:r,g,b,brightness,mode"
+//
+// A fast wheel drag can fire this many times a second; sending every single
+// one flooded the ESP32 (each repaint calls the fairly slow FastLED.show())
+// faster than it could keep up, which could make the preview appear to
+// "stick" or, under load, crash the device. Throttled per scope (day/night)
+// to at most one send per interval, with a trailing call so the final value
+// (e.g. where the drag ends) is never dropped.
+const PREVIEW_MIN_INTERVAL_MS = 50;
+const previewThrottle = { day: { lastSent: 0, timer: null }, night: { lastSent: 0, timer: null } };
+
 function sendPreview(scope) {
     if (!window.socket || socket.readyState !== WebSocket.OPEN) return;
     const picker = scope === "night" ? nightColorPicker : colorPicker;
     const slider = scope === "night" ? nightBrightnessSlider : brightnessSlider;
     const modeSelect = document.getElementById(scope === "night" ? "nightMode" : "colorMode");
     if (!picker.color || !modeSelect) return;
-    const msg = "preview:" + scope + ":" + picker.color.red + "," + picker.color.green + "," +
-        picker.color.blue + "," + slider.value + "," + modeSelect.value;
-    socket.send(msg);
+
+    const state = previewThrottle[scope];
+    const send = () => {
+        state.lastSent = Date.now();
+        const msg = "preview:" + scope + ":" + picker.color.red + "," + picker.color.green + "," +
+            picker.color.blue + "," + slider.value + "," + modeSelect.value;
+        socket.send(msg);
+    };
+
+    const elapsed = Date.now() - state.lastSent;
+    if (elapsed >= PREVIEW_MIN_INTERVAL_MS) {
+        clearTimeout(state.timer);
+        state.timer = null;
+        send();
+    } else if (!state.timer) {
+        state.timer = setTimeout(() => { state.timer = null; send(); }, PREVIEW_MIN_INTERVAL_MS - elapsed);
+    }
 }
 
 // Mirrors the firmware's isValidNtpServer() (web.cpp): an NTP server is a

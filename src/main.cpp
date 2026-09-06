@@ -21,6 +21,7 @@ bool APMode = false;
 bool NightMode = false;
 bool OTA = false;
 bool previewMode = false;
+bool previewDirty = false;
 unsigned long previewColorTriggerTimestamp = 0;
 String ssid;
 String password;
@@ -182,6 +183,17 @@ void loop() {
     if(!previewMode){
       myTimeData.loop();
     }else{
+      // The actual repaint (previewColor() -> FastLED.show()) runs here in
+      // the main loop rather than directly in the WebSocket handler: a fast
+      // color-wheel drag can fire many "preview:" messages per second, and
+      // repainting on every single one inside the async_tcp task's callback
+      // starves its watchdog and crashes the device. Coalescing to at most
+      // one repaint per loop iteration fixes both the crash and the preview
+      // occasionally seeming to "stick" under load.
+      if(previewDirty){
+        myTimeData.previewColor();
+        previewDirty = false;
+      }
       if(millis() - previewColorTriggerTimestamp > 5000){
         previewMode = false;
         if(!NightMode){

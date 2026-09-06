@@ -15,6 +15,7 @@ extern Preferences preferences;
 extern bool APMode;
 extern bool NightMode;
 extern bool previewMode;
+extern bool previewDirty;
 extern unsigned long previewColorTriggerTimestamp;
 extern String ssid;
 extern String password;

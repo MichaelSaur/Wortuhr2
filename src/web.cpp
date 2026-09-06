@@ -488,7 +488,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         brightness = fields[3].toInt();
         design = newMode;
         FastLED.setBrightness(brightness);
-        myTimeData.previewColor();
+        // Just record the latest requested preview here - the actual repaint
+        // (previewColor(), which calls the relatively slow FastLED.show())
+        // happens once per main-loop iteration instead of directly in this
+        // WebSocket callback, so a rapid stream of preview messages can't
+        // pile up work in - and crash - the async_tcp task.
+        previewDirty = true;
 
         previewMode = true;
         previewColorTriggerTimestamp = millis();
