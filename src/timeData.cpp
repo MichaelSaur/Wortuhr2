@@ -378,19 +378,14 @@ int TimeData::physicalMatrixIndex(int pixelIndex){
 // color/brightness/mode control. animate()'s Static/Palette/Random branches
 // only repaint via a blocking ~1s fade-from-black, which is too slow to feel
 // "live" during continuous input, so this mirrors their color choice but
-// writes it directly instead of blending in over 20 frames. Palette is an
-// exception: for preview only, it lights the ENTIRE letter matrix (not just
-// the currently displayed words) with a positional hue gradient - lowest to
-// highest offset from the base color - instead of animate()'s per-word
-// random offset, so the whole color range is visible at a glance. The 4
-// minute-indicator LEDs are kept off during a Palette preview - they aren't
-// part of the matrix the gradient is meant to show.
+// writes it directly instead of blending in over 20 frames. Palette and
+// Rainbow are exceptions: for preview only, they light the ENTIRE letter
+// matrix (not just the currently displayed words) with a positional hue
+// gradient, instead of animate()'s per-word/per-active-LED treatment, so the
+// whole effect is visible at a glance even if few or no words are currently
+// lit. The 4 minute-indicator LEDs are kept off during these previews -
+// they aren't part of the matrix the gradient is meant to show.
 void TimeData::previewColor(){
-    if(design == "Rainbow"){
-        // Rainbow repaints every loop iteration regardless of dirty flags,
-        // so it already reflects the new design on its own within one frame.
-        return;
-    }
     bool activeSection = false;
     CRGB color = baseColor;
     int delta = 30;
@@ -408,6 +403,12 @@ void TimeData::previewColor(){
             leds[i] = CHSV(baseHue + hueOffset, 255, 255);
         }else if(design == "Palette"){
             leds[i] = CRGB::Black; // minute-indicator LEDs disabled during Palette preview
+        }else if(design == "Rainbow" && inMatrix){
+            int raster = physicalMatrixIndex(i);
+            uint8_t rainbowHue = map(raster, 0, 109, 0, 255);
+            leds[i] = CHSV(rainbowHue, 255, 255);
+        }else if(design == "Rainbow"){
+            leds[i] = CRGB::Black; // minute-indicator LEDs disabled during Rainbow preview
         }else if(activeLEDs[i]){
             if(!activeSection){
                 activeSection = true;
