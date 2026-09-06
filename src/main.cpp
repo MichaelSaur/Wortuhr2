@@ -190,7 +190,12 @@ void loop() {
       // starves its watchdog and crashes the device. Coalescing to at most
       // one repaint per loop iteration fixes both the crash and the preview
       // occasionally seeming to "stick" under load.
-      if(previewDirty){
+      // Rainbow is meant to be a continuously rolling animation (see
+      // animate()'s own Rainbow branch) driven by the globally-incrementing
+      // hue below, not a static snapshot - so unlike the other designs it
+      // needs repainting every iteration even without a new preview message,
+      // or it would otherwise just freeze between drags.
+      if(previewDirty || design == "Rainbow"){
         myTimeData.previewColor();
         previewDirty = false;
       }
